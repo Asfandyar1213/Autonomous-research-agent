@@ -207,6 +207,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
 
-Built with ❤️ by [Asfandyar](https://github.com/Asfandyar1213)
+Built  by [Asfandyar](https://github.com/Asfandyar1213)
 
 </div>
