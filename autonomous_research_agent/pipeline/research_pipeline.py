@@ -36,20 +36,34 @@ class ResearchPipeline:
         """
         # Use default output directory if not specified
         if output_dir is None:
-            # Get the current working directory
-            output_dir = os.path.join(os.getcwd(), 'research_output')
+            # Get the current working directory and create path using pathlib
+            output_dir = Path(os.getcwd()) / 'research_output'
+        else:
+            # Convert to Path object for more reliable path handling
+            output_dir = Path(output_dir)
         
         self.output_dir = output_dir
         
         # Create output directory if it doesn't exist
-        os.makedirs(self.output_dir, exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create report and changelog directories
+        self.reports_dir = self.output_dir / 'reports'
+        self.changelogs_dir = self.output_dir / 'changelogs'
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
+        self.changelogs_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize components
-        self.query_processor = QueryProcessor()
-        self.acquisition_manager = AcquisitionManager()
-        self.processing_manager = ProcessingManager()
-        self.analysis_manager = AnalysisManager()
-        self.report_generator = ReportGenerator(output_dir=os.path.join(self.output_dir, 'reports'))
+        try:
+            self.query_processor = QueryProcessor()
+            self.acquisition_manager = AcquisitionManager()
+            self.processing_manager = ProcessingManager()
+            self.analysis_manager = AnalysisManager()
+            self.report_generator = ReportGenerator(output_dir=str(self.reports_dir))
+            logger.info("Successfully initialized all pipeline components")
+        except Exception as e:
+            logger.error(f"Error initializing pipeline components: {str(e)}")
+            raise PipelineError(f"Failed to initialize research pipeline: {str(e)}")
     
     def process_query(self, query: str) -> Dict:
         """
@@ -143,7 +157,7 @@ class ResearchPipeline:
             
             # Generate changelog report
             changelog_report = changelog.generate_report()
-            changelog_path = os.path.join(self.output_dir, 'reports', f"changelog_{project_id}.md")
+            changelog_path = self.reports_dir / f"changelog_{project_id}.md"
             
             with open(changelog_path, 'w', encoding='utf-8') as f:
                 f.write(changelog_report)
@@ -156,7 +170,7 @@ class ResearchPipeline:
                 'paper_count': len(papers),
                 'processed_count': len(processed_papers),
                 'reports': reports,
-                'changelog_path': changelog_path,
+                'changelog_path': str(changelog_path),
                 'timestamp': datetime.now().isoformat()
             }
             

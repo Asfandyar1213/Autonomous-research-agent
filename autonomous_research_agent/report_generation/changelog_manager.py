@@ -93,13 +93,14 @@ class ChangelogManager:
         
         # Use default changelog directory if not specified
         if changelog_dir is None:
-            # Get the current working directory
-            changelog_dir = os.path.join(os.getcwd(), 'changelogs')
+            # Get the current working directory using pathlib
+            changelog_dir = str(Path(os.getcwd()) / 'changelogs')
         
-        self.changelog_dir = changelog_dir
+        # Convert to Path object for consistent path handling
+        self.changelog_dir = Path(changelog_dir)
         
         # Create changelog directory if it doesn't exist
-        os.makedirs(self.changelog_dir, exist_ok=True)
+        self.changelog_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize entries list
         self.entries = []
@@ -107,30 +108,40 @@ class ChangelogManager:
         # Load existing changelog if available
         self._load_changelog()
     
-    def _get_changelog_path(self) -> str:
+    def _get_changelog_path(self) -> Path:
         """
         Get the path to the changelog file
         
         Returns:
-            Path to the changelog file
+            Path object to the changelog file
         """
-        return os.path.join(self.changelog_dir, f"changelog_{self.project_id}.json")
+        return self.changelog_dir / f"changelog_{self.project_id}.json"
     
     def _load_changelog(self):
         """Load existing changelog if available"""
         changelog_path = self._get_changelog_path()
         
-        if os.path.exists(changelog_path):
+        if changelog_path.exists():
             try:
                 with open(changelog_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 
                 # Convert dictionaries to ChangelogEntry objects
                 self.entries = [ChangelogEntry.from_dict(entry) for entry in data]
-                logger.info(f"Loaded {len(self.entries)} changelog entries")
+                logger.info(f"Loaded {len(self.entries)} changelog entries from {changelog_path}")
                 
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error loading changelog: {str(e)}")
+                # Create a backup of the corrupted file
+                backup_path = changelog_path.with_suffix('.json.bak')
+                try:
+                    import shutil
+                    shutil.copy(str(changelog_path), str(backup_path))
+                    logger.warning(f"Created backup of corrupted changelog at {backup_path}")
+                except Exception as backup_error:
+                    logger.error(f"Failed to backup corrupted changelog: {str(backup_error)}")
             except Exception as e:
-                logger.error(f"Error loading changelog: {str(e)}")
+                logger.error(f"Error loading changelog from {changelog_path}: {str(e)}")
                 # Initialize with empty list if loading fails
                 self.entries = []
     
@@ -142,13 +153,18 @@ class ChangelogManager:
             # Convert entries to dictionaries
             data = [entry.to_dict() for entry in self.entries]
             
-            with open(changelog_path, 'w', encoding='utf-8') as f:
+            # Create a temporary file first to prevent data loss if write fails
+            temp_path = changelog_path.with_suffix('.json.tmp')
+            with open(temp_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
-            
-            logger.info(f"Saved {len(self.entries)} changelog entries")
+                
+            # Rename the temporary file to the final file
+            temp_path.replace(changelog_path)
+                
+            logger.info(f"Saved {len(self.entries)} changelog entries to {changelog_path}")
             
         except Exception as e:
-            logger.error(f"Error saving changelog: {str(e)}")
+            logger.error(f"Error saving changelog to {changelog_path}: {str(e)}")
             raise ChangelogError(f"Failed to save changelog: {str(e)}")
     
     def add_entry(

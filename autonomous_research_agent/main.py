@@ -4,33 +4,34 @@ Autonomous Research Agent for Technical Papers
 Main entry point for the application
 """
 
+import click
 import logging
 import os
 import sys
+import uuid
+import platform
+from datetime import datetime
+from dotenv import load_dotenv
 from pathlib import Path
 from typing import Optional
 
-import click
-from dotenv import load_dotenv
-from tqdm import tqdm
+from config.logging_config import configure_logging
+from pipeline.research_pipeline import ResearchPipeline
+from core.exceptions import PipelineError
 
-from autonomous_research_agent.pipeline.research_pipeline import ResearchPipeline
-from autonomous_research_agent.core.exceptions import PipelineError
+# Version information
+__version__ = "0.1.1"
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('research_agent.log')
-    ]
-)
-
-logger = logging.getLogger(__name__)
+# Configure logging using centralized configuration
+logger = configure_logging(log_dir="logs", log_filename="research_agent.log")
+logger.info(f"Starting Autonomous Research Agent v{__version__}")
 
 # Load environment variables
-load_dotenv()
+try:
+    load_dotenv()
+    logger.info("Environment variables loaded")
+except Exception as e:
+    logger.warning(f"Error loading environment variables: {str(e)}")
 
 @click.group()
 def cli():
@@ -151,7 +152,15 @@ def status(project_id: str, output_dir: Optional[str] = None):
 @cli.command()
 def version():
     """Display the current version of the application"""
-    click.echo(f"Autonomous Research Agent for Technical Papers v0.1.0")
+    click.echo(f"Autonomous Research Agent for Technical Papers v{__version__}")
+    click.echo(f"Python: {sys.version}")
+    click.echo(f"Running from: {Path(__file__).resolve().parent}")
+    click.echo(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 if __name__ == '__main__':
-    cli()
+    try:
+        cli()
+    except Exception as e:
+        logger.critical(f"Unhandled exception: {str(e)}")
+        click.echo(f"Critical error: {str(e)}", err=True)
+        sys.exit(1)

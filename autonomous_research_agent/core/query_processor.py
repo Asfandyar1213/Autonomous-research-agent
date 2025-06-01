@@ -111,21 +111,45 @@ class QueryProcessor:
     
     def initialize_models(self):
         """Initialize NLP models for query processing"""
+        # Flag to track if we're using fallback mechanisms
+        self.using_fallback = False
+        
         try:
             # Load spaCy model for NLP processing
-            self.nlp = spacy.load("en_core_web_lg")
-            logger.info("Loaded spaCy model: en_core_web_lg")
+            try:
+                self.nlp = spacy.load("en_core_web_lg")
+                logger.info("Loaded spaCy model: en_core_web_lg")
+            except OSError:
+                # Try smaller model if large model is not available
+                try:
+                    logger.warning("en_core_web_lg not found, trying en_core_web_md instead")
+                    self.nlp = spacy.load("en_core_web_md")
+                    logger.info("Loaded spaCy model: en_core_web_md")
+                except OSError:
+                    # Fall back to smallest model as last resort
+                    logger.warning("en_core_web_md not found, trying en_core_web_sm instead")
+                    self.nlp = spacy.load("en_core_web_sm")
+                    logger.info("Loaded spaCy model: en_core_web_sm")
+                    self.using_fallback = True
             
             # Initialize zero-shot classifier for domain classification
-            self.zero_shot_classifier = pipeline(
-                "zero-shot-classification",
-                model="facebook/bart-large-mnli",
-                device=-1  # Use CPU
-            )
-            logger.info("Initialized zero-shot classifier")
-            
+            try:
+                self.zero_shot_classifier = pipeline(
+                    "zero-shot-classification",
+                    model="facebook/bart-large-mnli",
+                    device=-1  # Use CPU
+                )
+                logger.info("Initialized zero-shot classifier")
+            except Exception as e:
+                logger.warning(f"Error initializing zero-shot classifier: {str(e)}")
+                self.zero_shot_classifier = None
+                self.using_fallback = True
+                
         except Exception as e:
-            logger.error(f"Error initializing NLP models: {str(e)}")
+            logger.warning(f"Error initializing NLP models: {str(e)}")
+            self.nlp = None
+            self.zero_shot_classifier = None
+            self.using_fallback = True
             raise QueryProcessingError(f"Failed to initialize NLP models: {str(e)}")
     
     def process(self, query: str) -> StructuredQuery:
@@ -340,32 +364,44 @@ class QueryProcessor:
         """
         expanded_terms = {}
         
+        # If NLP model isn't initialized, try to initialize it
         if not self.nlp:
             self.initialize_models()
+            
+        # If still no NLP model, return empty expansions
+        if not self.nlp or self.using_fallback:
+            logger.warning("Cannot expand search terms: NLP model not available or using fallback")
+            return {term: [] for term in search_terms}
         
-        for term in search_terms:
-            # Get word vectors for term
-            term_doc = self.nlp(term)
-            
-            # Skip terms that don't have vectors
-            if not term_doc.has_vector:
-                continue
-            
-            # Find similar terms using word vectors
-            similar_terms = []
-            for word in self.nlp.vocab:
-                # Skip words without vectors or that are too short
-                if not word.has_vector or len(word.text) < 4:
+        try:
+            for term in search_terms:
+                # Get word vectors for term
+                term_doc = self.nlp(term)
+                
+                # Skip terms that don't have vectors
+                if not term_doc.has_vector:
+                    expanded_terms[term] = []
                     continue
                 
-                # Calculate similarity
-                similarity = term_doc.similarity(word)
+                # Find similar terms using word vectors
+                similar_terms = []
+                for word in self.nlp.vocab:
+                    # Skip words without vectors or that are too short
+                    if not word.has_vector or len(word.text) < 4:
+                        continue
+                    
+                    # Calculate similarity
+                    similarity = term_doc.similarity(word)
+                    
+                    # Add if similarity is high enough
+                    if similarity > 0.7 and word.text.lower() != term.lower():
+                        similar_terms.append(word.text)
                 
-                # Add if similarity is high enough
-                if similarity > 0.7 and word.text.lower() != term.lower():
-                    similar_terms.append(word.text)
-            
-            # Limit to top 3 similar terms
-            expanded_terms[term] = similar_terms[:3]
+                # Limit to top 3 similar terms
+                expanded_terms[term] = similar_terms[:3]
+        except Exception as e:
+            logger.error(f"Error in search term expansion: {str(e)}")
+            # Provide empty expansions as fallback
+            expanded_terms = {term: [] for term in search_terms}
         
         return expanded_terms
